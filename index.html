@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>シンプルアラーム</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      gap: 2rem;
+    }
+
+    #clock {
+      font-size: 5rem;
+      font-weight: 300;
+      letter-spacing: 0.1em;
+      color: #e0e0ff;
+    }
+
+    .card {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 16px;
+      padding: 2rem 2.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.2rem;
+      min-width: 320px;
+    }
+
+    .card h2 {
+      font-size: 1rem;
+      color: #888;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    input[type="time"] {
+      flex: 1;
+      background: #0f3460;
+      border: 1px solid #334;
+      border-radius: 8px;
+      color: #eee;
+      font-size: 1.5rem;
+      padding: 0.5rem 1rem;
+      outline: none;
+    }
+
+    button {
+      padding: 0.6rem 1.4rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.85; }
+
+    #btnSet   { background: #533483; color: #fff; }
+    #btnStop  { background: #c84b31; color: #fff; display: none; }
+
+    #status {
+      font-size: 0.9rem;
+      color: #aaa;
+      min-height: 1.2em;
+    }
+
+    #status.ringing {
+      color: #f9a825;
+      font-weight: bold;
+      animation: pulse 0.6s infinite alternate;
+    }
+
+    @keyframes pulse {
+      from { opacity: 1; }
+      to   { opacity: 0.4; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="clock">00:00:00</div>
+
+  <div class="card">
+    <h2>アラーム設定</h2>
+    <div class="row">
+      <input type="time" id="alarmTime" step="1">
+      <button id="btnSet">セット</button>
+    </div>
+    <div id="status">アラームは設定されていません</div>
+    <button id="btnStop">アラームを止める</button>
+  </div>
+
+  <script>
+    const clockEl  = document.getElementById('clock');
+    const inputEl  = document.getElementById('alarmTime');
+    const statusEl = document.getElementById('status');
+    const btnSet   = document.getElementById('btnSet');
+    const btnStop  = document.getElementById('btnStop');
+
+    let alarmTime = null;
+    let audioCtx  = null;
+    let oscillators = [];
+
+    function pad(n) { return String(n).padStart(2, '0'); }
+
+    function nowHMS() {
+      const d = new Date();
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
+    function tick() {
+      const hms = nowHMS();
+      clockEl.textContent = hms;
+
+      if (alarmTime && hms === alarmTime) {
+        ring();
+        alarmTime = null;
+      }
+    }
+
+    function ring() {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const freqs = [880, 1100, 1320];
+      oscillators = freqs.map((freq, i) => {
+        const osc  = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime + i * 0.15);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(audioCtx.currentTime + i * 0.15);
+        return osc;
+      });
+
+      statusEl.textContent = '時間です！';
+      statusEl.className = 'ringing';
+      btnStop.style.display = 'block';
+      btnSet.style.display  = 'none';
+    }
+
+    function stopAlarm() {
+      oscillators.forEach(o => { try { o.stop(); } catch (_) {} });
+      oscillators = [];
+      if (audioCtx) { audioCtx.close(); audioCtx = null; }
+      statusEl.textContent = 'アラームは設定されていません';
+      statusEl.className = '';
+      btnStop.style.display = 'none';
+      btnSet.style.display  = 'block';
+    }
+
+    btnSet.addEventListener('click', () => {
+      const v = inputEl.value;
+      if (!v) return;
+      alarmTime = v.length === 5 ? v + ':00' : v;
+      statusEl.textContent = `${alarmTime} にアラームをセットしました`;
+      statusEl.className = '';
+    });
+
+    btnStop.addEventListener('click', stopAlarm);
+
+    setInterval(tick, 1000);
+    tick();
+  </script>
+</body>
+</html>
