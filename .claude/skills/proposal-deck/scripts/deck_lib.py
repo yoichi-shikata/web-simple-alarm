@@ -340,7 +340,7 @@ def set_para(xml, old_text, new_text):
     """Replace a paragraph whose combined run text equals `old_text`, collapsing
     it to a single run that keeps the first run's formatting. Use this on the
     cover/divider slides, where a phrase is often split across several runs
-    (e.g. 'ヤマキ株式' + '会社　御中') and a plain string replace would miss it."""
+    (e.g. '〇〇株式' + '会社　御中') and a plain string replace would miss it."""
     def repl(m):
         s = m.group(0)
         if "".join(re.findall(r'<a:t>([^<]*)</a:t>', s)) != old_text:
@@ -355,6 +355,23 @@ def set_para(xml, old_text, new_text):
     if out == xml:
         raise ValueError("no paragraph matched: %r" % old_text)
     return out
+
+
+def paragraph_texts(xml):
+    """Non-empty paragraphs' combined text, in document order. Use it to find
+    what a template's cover actually says before replacing it -- the strings
+    differ for every past deal, so match what is there, never what you expect."""
+    out = []
+    for p in re.findall(r'<a:p>.*?</a:p>|<a:p .*?</a:p>', xml, re.S):
+        t = "".join(re.findall(r'<a:t>([^<]*)</a:t>', p))
+        if t.strip():
+            out.append(t)
+    return out
+
+
+def run_texts(xml):
+    """Every <a:t> in document order (slide-number field text included)."""
+    return re.findall(r'<a:t>([^<]*)</a:t>', xml)
 
 
 def swap_runs(xml, pairs):

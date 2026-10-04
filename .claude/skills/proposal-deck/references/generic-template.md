@@ -39,10 +39,12 @@ d.NAVY, d.RED, d.LTBLUE, d.LTGRAY, d.GRAY = "1F3864", "C00000", "DEEBF7", "F2F2F
 タイトル枠がプレースホルダでなく素のテキストボックスのテンプレもある。その場合は
 `build(path, "", "", body, with_placeholders=False)` でプレースホルダを出さずに、
 タイトルとリード文も `textbox()` で実測座標に置く。ヘッダの罫線やロゴがレイアウトではなく
-スライドに直接描かれているときは、そのスライドを `add_slide.py` で複製して中身だけ差し替える。
+スライドに直接描かれているときは、そのスライドを `scripts/pptx_tool.py add_slide` で複製して中身だけ差し替える。
 
 ## 4. 変わらないこと
 
 - 構造操作（複製・削除・並べ替え）を全部終えてから中身を書く
 - Appendix・事例など画像を抱えるスライドは書き直さず丸ごと流用する
-- `validate.py --original` → `render_qa.sh` → 全ページ目視、は省略しない
+- `pptx_tool.py validate` → `pptx_tool.py render` → 全ページ目視、は省略しない
+- 正解例 `build_deck.py` の型関数は座標を `cols()` と `d.L/d.W` から取っているので、
+  `configure_for()` の後ならそのまま使える。`TEMPLATE` のスライド割り当てだけ合わせる

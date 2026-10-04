@@ -2,204 +2,150 @@
 name: proposal-deck
 description: |
   既存のPowerPoint提案書の体裁（配色・フォント・ヘッダ/フッタ・レイアウト・Appendix）をそのまま引き継いで、
-  新しい案件の提案書デッキを作る。既定はVRAIN Solutionの営業提案書（AI外観検査など）。
-  任意のテンプレpptxを渡された場合は、そのデッキから設計トークンを抽出して流用する汎用モードで動く。
+  新しい案件の提案書デッキ(.pptx)を作る。既定はVRAIN Solutionの営業提案書（AI外観検査など）で、
+  同梱の正解例と同じ構成・同じ書き方・同じ座標で組む。別のテンプレpptxを渡された場合は汎用モードで流用する。
   Use this skill whenever the user asks for 提案書・ご提案資料・スライド・デッキ・プレゼン資料 to be created or updated,
   whenever they paste 案件情報・ヒアリングメモ・議事録 and want it turned into slides,
   whenever they say「他依頼みたいに作って」「前回と同じ体裁で」「この資料をベースに」,
-  and whenever a .pptx is attached as a reference or template — even if they never say the word "skill" or "template".
-  営業提案書・見積前提資料・顧客向け説明資料はすべてこのスキルの対象。
+  and whenever a .pptx is attached as a reference or template — even if they never say "skill" or "template".
   Do NOT use for: 単発のグラフ作成のみ、Googleスライドの編集、Word/PDF成果物。
 ---
 
-# 提案書デッキ作成
+# 提案書デッキ作成（Claude Code / Codex 共通）
 
-既存デッキを**設計システムの供給源**として扱い、中身だけ入れ替える。ゼロから作らない理由は単純で、
-顧客に出す資料は体裁が1pxでもブレると「別の会社の資料」に見えるから。マスター・レイアウト・
-Appendixはテンプレのものを原子単位で再利用し、こちらが書くのは本編スライドのXMLだけにする。
+既存デッキを**設計システムの供給源**として扱い、中身だけ入れ替える。顧客に出す資料は体裁が少しでも
+ブレると「別の会社の資料」に見えるので、マスター・レイアウト・Appendixはテンプレのものをそのまま使い、
+こちらが書くのは本編スライドのXMLだけにする。
 
-## スクリプトの場所について
+このスキルは **Claude Code と Codex で同じ出力になる**ことを目標にしている。そのために:
 
-以下 `$SK` は**このSKILL.mdがあるディレクトリ**（読み込み時に表示される "Base directory for this skill"）。
-リポジトリ同梱なら `.claude/skills/proposal-deck`、プロフィールに保存した場合は別の場所になるので、
-最初に `SK=<そのパス>` を決めてから以降のコマンドを打つ。
+- ツールは全部このフォルダ内のスクリプト（標準ライブラリ＋Pillow/PyMuPDF）。エージェント固有の機能に依存しない
+- 構成・文言・座標は `examples/two-station-line/build_deck.py`（**正解例**）で固定している。
+  自分で一からレイアウトを考えず、正解例をコピーして `CONTENT` を書き換えるのが基本
 
-`add_slide` `clean` `validate` `thumbnail` は同梱の `pptx` スキルのものを使うが、その置き場所は
-セッションごとにUUID入りのパスに変わる。**直接パスを書かず、必ず `scripts/pptx_tool.py` 経由で呼ぶ。**
+## パスの決め方
 
-## 0. 環境を整える（最初に必ず）
+以下 `$SK` は**このSKILL.mdがあるディレクトリ**。最初に確定させてから進める
+（例: Claude Code のリポジトリ同梱なら `.claude/skills/proposal-deck`、Codex なら `~/.agents/skills/proposal-deck` や
+`.agents/skills/proposal-deck`）。
 
-このコンテナには **LibreOffice Impress・poppler・CJKフォント・markitdown・python-pptx が入っていない**。
-入れずに進めると「source file could not be loaded」で詰まるので、最初に流す:
+## 0. 環境を整える（最初に1回）
 
 ```bash
-bash $SK/scripts/setup_env.sh
+python $SK/scripts/setup_env.py      # 不足を自動インストール（できない分はコマンドを表示）
+python $SK/tests/run_e2e.py          # このマシンでスキルが動くことの自己診断。ALL PASSED を確認
 ```
 
-数分かかる。待っている間にテンプレの中身を読む作業を進めてよい。
+LibreOffice（Impress込み）が無いとスライドを画像化して目視確認できない。Linuxで `soffice` はあるのに
+「source file could not be loaded」になるのは Impress 抜けが原因で、デッキの破損ではない。
 
-## 1. テンプレを手に入れる
+## 1. テンプレと案件情報をそろえる
 
-優先順:
-
-1. `assets/` に同梱のテンプレがあればそれを使う（`ls $SK/assets/*.pptx`）
-2. ユーザーが添付したpptx
-3. どちらも無ければ**聞く**。「直近の提案書pptxを添付してください」。推測で自作しない
+- テンプレ: `$SK/assets/*.pptx` があればそれ、なければユーザーが添付した直近の提案書pptx。
+  **どちらも無ければ聞く。** 推測で自作しない
+- 案件情報: ユーザーが貼ったメモ。`examples/two-station-line/request.md` が依頼文の典型形
 
 ## 2. テンプレを読む
 
-作業用に展開しておく（以降のスライド操作はすべてこの `unpacked/` に対して行う）:
-
-```python
-import sys; sys.path.insert(0, "<$SK>/scripts")
-import deck_lib as d
-d.unpack("<template.pptx>", "unpacked")
+```bash
+python $SK/scripts/inspect_template.py <template.pptx> --layouts --tokens
+python $SK/scripts/pptx_tool.py text <template.pptx>
+python $SK/scripts/pptx_tool.py thumbnail <template.pptx> tpl      # tpl-1.jpg … を目で見る
 ```
+
+確認すること:
+
+- **スライド割り当てが正解例の `TEMPLATE` と一致するか**（VRAINテンプレなら 表紙=1、目次=2、中扉=3/5/8/11、
+  本編=4/6/7/9/10、前案件の検証結果=12〜25、Appendix=26〜39）。違えば `TEMPLATE` を合わせる
+- `media` 列が付いているスライド（画像あり）は**書き直さず丸ごと流用**するか捨てるかのどちらか
+- スライドサイズがA4（9906000×6858000）でなければ汎用モード → `references/generic-template.md`
+
+## 3. 正解例をコピーして CONTENT を書く
 
 ```bash
-python $SK/scripts/inspect_template.py <template.pptx>
+cp $SK/examples/two-station-line/build_deck.py ./build_deck.py
 ```
 
-スライドごとの「使用レイアウト・図形名・座標(EMU)・塗り色・テキスト」と、本文プレースホルダの
-idx対応が出る。加えて `markitdown <template.pptx>` で全文、
-`python $SK/scripts/pptx_tool.py thumbnail <template.pptx> tpl` でサムネイルを見る。
+`build_deck.py` の `CONTENT` だけを案件情報で書き換える。**スライドの型関数（`s_genjou` など）と
+`TEMPLATE` 以外の座標・色・文言の作法は変えない。** そこを変えると Claude Code と Codex で出力がずれる。
 
-VRAIN以外のテンプレ（スライドサイズが違う）なら、生成前に必ず:
+コピー先からでもスキル本体は自動で見つかる（`.agents/skills` `~/.agents/skills` `~/.codex/skills`
+`~/.claude/skills` などを探す）。見つからないと言われたら `PROPOSAL_DECK_SKILL=$SK` を付けて実行する。
 
-```python
-d.configure_for("unpacked")   # L/W/FOOT をスライドサイズから再計算
-```
+書き方のルール（正解例がすべてこの通りになっている）:
 
-`from deck_lib import *` は使わない。star importした `L` `W` は値のコピーなので、
-`configure_for` で更新されず古い座標のまま生成してしまう。常に `d.L` のようにモジュール経由で参照する。
+- 各スライドのリード文は「■〜いたします。」の一文で、そのスライドの結論を言い切る
+- 課題カードの最後の1項目は赤太字 `(text, 1, d.RED)` にして「だから検査機が要る」につなげる
+- ステーションは `stations` に1件ずつ。構成表は**見積書の品目と同じ並び**（区分/仕様/数量）
+- 案件に無い章は消してよいが、残す章の型は正解例のまま使う
+- `CONTENT["sections"]` は中扉と目次のⅠ〜Ⅳ。テンプレの前案件の章名は実行時に自動で置き換わる
 
-ここで決めるのは3つ:
-
-- **どのレイアウトが本編スライドか**（VRAINテンプレでは `slideLayout5`。タイトル=idx12 / リード文=idx13 のプレースホルダを供給）
-- **どのスライドが流用対象か**（会社概要・導入事例・プロダクト紹介などのAppendixは**触らず丸ごと残す**）
-- **どのスライドが案件固有か**（前案件の検証結果・写真つきスライドは捨てる）
-
-設計トークン（色・フォント・座標）は `references/design-system.md` に既出のVRAIN値がある。
-別テンプレなら `inspect_template.py` の出力から同じ形で起こす。手順は `references/generic-template.md`。
-
-## 3. 章立てを決める
-
-`references/deck-structure.md` に標準構成と各スライドの型（2カード型・フロー型・表型・ガント型・
-ステップ型・効果型）がある。案件情報をそこに流し込む。
-
-原則として **1スライド1メッセージ**。リード文（idx13）は「■〜いたします。」の一文で、
-そのスライドで言いたいことを言い切る。
-
-## 4. 本編スライドを生成する
-
-`scripts/deck_lib.py` がテンプレの作法そのままのXMLを吐く。使い方:
-
-```python
-i = d.ids()
-(x1, w1), (x2, w2) = d.cols(2)        # 座標は直書きせず cols() から取る
-b  = d.card(i, x1, d.TOP, w1, 2926080, "＜案件のご状況＞", ["・…", "・…"])
-b += d.card(i, x2, d.TOP, w2, 2926080, "＜課題＞", ["・…"], header_fill=d.RED)
-b += d.banner(i, d.L, 4892040, d.W, 868680, [d.R("⇒ …", sz=1300, b=1, color=d.NAVY)])
-d.build("unpacked/ppt/slides/slide4.xml", "現状のご状況と課題", "■…いたします。", b)
-```
-
-揃っているもの: `card` `banner` `point_row` `flow` `gantt` `table` `header_row` `zebra` `tcell` `shape` `textbox` `R` `P` `ids` `cols` `build`、
-色定数 `NAVY/RED/BLUE/LTBLUE/LTGRAY/GRAY/BORDER/MIDGRAY/WHITE`、
-版面定数 `L`（左端）`W`（本文幅）`TOP`（本文上端）。詳細は `references/design-system.md`。
-
-表紙・目次・中扉はゼロから作らず、テンプレの該当スライドの**文字だけ差し替える**:
-
-```python
-d.edit_slide("unpacked", "slide1",   # 段落を1runに潰して置換
-             lambda x: d.set_para(x, "ヤマキ株式会社　御中", "〇〇株式会社　御中"))
-d.edit_slide("unpacked", "slide2",   # run単位の入れ替え（同時置換なので A→B, B→C も安全）
-             lambda x: d.swap_runs(x, [("検証結果（再掲）", "ご検討にあたっての比較観点")]))
-```
-
-スライドの書き換えは `edit_slide` を通す。`open(path, "w")` を先に開いてから置換すると、
-置換が失敗した瞬間に中身が空のスライドが残り、デッキ全体が開けなくなる。
-
-ページ番号は `<a:fld type="slidenum">` なので触らなくていい。並べ替えれば自動で振り直る。
-
-## 5. 組み立てる
+## 4. 組む
 
 ```bash
-# 本編スライドが足りなければ複製（package bookkeeping込み）
-python $SK/scripts/pptx_tool.py add_slide unpacked/ slide4.xml
+python build_deck.py <template.pptx> YYYYMMDD_<件名>_ご提案書.pptx
 ```
 
-並び順と不要スライドの削除は `<p:sldIdLst>` の書き換えで行う:
+スクリプトは、構造操作（複製・並べ替え・削除）→ 中身の書き込み → 表紙差し替え → 章名差し替え →
+はみ出しチェック → 構造検証 → 前案件の残骸チェックの順に実行し、1つでも問題があれば終了コード1で止まる。
+最後の行が `off-slide: 0 | validate: PASS | leftovers: none` になっていることを確認する。
 
-```python
-d.reorder_slides("unpacked", ["slide1","slide2","slide3","slide4", ..., "slide39"])
-```
-
-その後 `clean.py` で孤児（消したスライドが抱えていた画像）を回収してから梱包:
+## 5. 目で見る（省略不可）
 
 ```bash
-python $SK/scripts/pptx_tool.py clean unpacked/
-```
-```python
-d.pack("unpacked", "out.pptx")   # 既存のout.pptxは消してから詰める（消したパーツが残らないように）
+python $SK/scripts/pptx_tool.py render YYYYMMDD_<件名>_ご提案書.pptx qa
 ```
 
-**順序が大事**: 構造操作（複製・削除・並べ替え）を全部終えてから中身を書く。
-`add_slide.py` は複製元をそのままコピーするし、`clean.py` は `sldIdLst` に無いスライドを消す。
+`qa/p-*.jpg` を**全ページ**見る。自動チェックは座標のはみ出ししか拾わず、**文字の見切れは拾えない**。
 
-## 6. 検証する
+- 文字が枠からはみ出す・2行のラベルが枠を割る → 文言を短くする（型は変えない）
+- カードの下が大きく空く → 箇条書きを足す、または正解例と同じ数にそろえる
+- 前案件の写真・社名が残っていない（Appendix以外）
 
-```python
-d.check_bounds("unpacked")      # 何も出なければOK
-```
-```bash
-python $SK/scripts/pptx_tool.py validate out.pptx --original <template.pptx>
-# 前案件の残骸チェック。OLD にはテンプレ表紙の社名・件名・品名を入れる（例: "ヤマキ|花かつお|かつお節"）
-OLD="ヤマキ|花かつお"
-markitdown out.pptx > out.md || { echo "!! markitdown failed — デッキが壊れている"; exit 1; }
-grep -inE "lorem|ipsum|TODO|\[insert|$OLD" out.md && echo "!! 残骸あり" || echo "clean"
-```
+日本語は全角1文字 ≒ フォントのpt数。11ptなら幅4,000,000EMUに約28文字、が目安。
+直したら `build_deck.py` を再実行 → 再レンダリング（PDFを作り直さないと画像は変わらない）。
 
-markitdownを先にファイルへ書き出すのは、パイプにすると変換失敗が `grep` の「該当なし」と区別できず、
-壊れたデッキを「clean」と誤判定するから。`check_bounds` は何も出なければOK。スライド外にはみ出した図形はエラーにならず黙って見切れるので、
-ここで機械的に潰しておく。`--original` を付けるのは、テンプレ自体が持っているスキーマ違反を
-自分のエラーと取り違えないため。
+## 6. 渡す
 
-## 7. 目で見る（省略不可）
-
-```bash
-bash $SK/scripts/render_qa.sh out.pptx outimg
-```
-
-出た画像を**全部**見る。初回は必ず数枚おかしい。特に:
-
-- **文字のはみ出し・見切れ**（最頻出。日本語は全角1文字≒フォントpt。11ptなら幅4,000,000EMUに約28文字）
-- カードの下が間延びしている（箇条書きを足すか、箱を縮める）
-- 図形内の2行ラベルが枠を割っている（段落を分ける／文言を短くする）
-- 隣の要素との距離が0.3インチ未満
-- テンプレ由来の装飾がテキスト差し替えでズレた
-
-直したら**再梱包→再レンダリング**（PDFを作り直さないと画像は変わらない）。
-
-## 8. 渡す
-
-ファイル名は `YYYYMMDD_<件名>_ご提案書.pptx`。`SendUserFile` で渡し、本文には章立ての表と
-**確認が必要な箇所**を明記する。
+ファイル名は `YYYYMMDD_<件名>_ご提案書.pptx`。作業フォルダに保存し、ファイル送信ツールがあればそれで渡す。
+返信には **章立ての表** と **確認が必要な箇所** を必ず書く。
 
 ## 数字と固有名詞の扱い
 
-提案書は顧客に出る。だから:
+提案書はそのまま客先に出るので:
 
-- **もらっていない数値を断定で書かない。** 処理時間の内訳のように推定が必要なら、スライド上に
-  「当社想定」「実機構成確定後に実測にて再提示」と明記し、返信でも推定値だと伝える
-- **社名・担当者名が未確定なら `〇〇株式会社　御中` のままにして、返信の冒頭で指摘する。**
-  推測で埋めると表紙が間違ったまま客先に出る
-- 金額は原則スライドに載せない（見積書側の領域）。載せる方針なら明示的に確認する
-- 前案件の社名・品名・写真が残っていないか、§6のgrepで必ず確認する
+- **もらっていない数値を断定で書かない。** 処理時間の内訳など推定が要るものは、スライドに「当社想定」
+  「実機構成確定後に実測にて再提示」と書き、返信でも推定値だと伝える
+- **社名・担当者名が未確定なら `〇〇株式会社　御中` のままにし、返信の冒頭で指摘する**
+- 金額は載せない（見積書の領域）。載せる方針なら確認する
+- 案件メモの社内向け情報（予算感・競合状況・支払条件・社内の担当経緯など）はスライドに出さない
+
+## 部品だけ使いたいとき
+
+正解例に無いスライドが要るときは `scripts/deck_lib.py` の部品で組む。座標・色の実値は
+`references/design-system.md`。
+
+```python
+import deck_lib as d          # from deck_lib import * は使わない（configure_for の更新が反映されない）
+i = d.ids(); (x1, w1), (x2, w2) = d.cols(2)
+b = d.card(i, x1, d.TOP, w1, 2926080, "＜左＞", ["・…"])
+d.build(path, "タイトル", "■…いたします。", b)
+```
+
+部品: `card` `banner` `point_row` `flow` `gantt` `table` `header_row` `zebra` `tcell` `shape` `textbox` `R` `P`、
+ファイル操作: `unpack` `edit_slide` `set_para` `swap_runs` `paragraph_texts` `run_texts` `reorder_slides` `pack`
+`check_bounds` `configure_for`、パッケージ操作: `scripts/pptx_tool.py add_slide|clean|validate|text|render|thumbnail`。
+
+スライドの書き換えは必ず `d.edit_slide()` を通す。`open(path, "w")` を先に開いてから置換すると、
+置換が失敗した瞬間に空のスライドが残り、デッキ全体が開けなくなる。
 
 ## 参照ファイル
 
 | ファイル | 読むとき |
 |---|---|
-| `references/design-system.md` | 色・座標・フォント・レイアウト対応の実値が要るとき |
-| `references/deck-structure.md` | 章立てとスライドの型を決めるとき |
+| `examples/two-station-line/build_deck.py` | **毎回**。正解例。コピーして使う |
+| `examples/two-station-line/README.md` | 正解例の各スライドの役割と、他の案件への当てはめ方 |
+| `references/design-system.md` | 色・座標・フォント・レイアウトの実値が要るとき |
+| `references/deck-structure.md` | 章立てを増減するとき、各スライドの考え方 |
 | `references/generic-template.md` | VRAIN以外のテンプレを渡されたとき |
+| `PROMPT.md` | ユーザーに依頼文の書き方を聞かれたとき |
