@@ -38,9 +38,11 @@ def main():
             shutil.rmtree(dest)
         shutil.copytree(SKILL, dest, ignore=IGNORE)
     if "--dry-run" not in args:
-        print("\n次に:  python %s/scripts/setup_env.py   （LibreOffice 等の準備）" %
-              os.path.join(os.path.expanduser(targets[0]), NAME))
-        print("Codex では  $%s  で呼び出せます。" % NAME)
+        home_skill = os.path.join(os.path.expanduser(targets[0]), NAME)
+        print("\n確認: %s が存在すれば配置OK" % os.path.join(home_skill, "SKILL.md"))
+        print("次に:  python \"%s\"   （LibreOffice 等の準備）" % os.path.join(home_skill, "scripts", "setup_env.py"))
+        print("       python \"%s\"      （自己診断。ALL PASSED を確認）" % os.path.join(home_skill, "tests", "run_e2e.py"))
+        print("Codex では新しいスレッドを開いて  $%s  で呼び出せます。" % NAME)
 
 
 if __name__ == "__main__":

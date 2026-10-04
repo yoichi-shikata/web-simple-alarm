@@ -21,6 +21,9 @@ sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 import deck_lib as d  # noqa: E402
 import pptx_pkg as pk  # noqa: E402
 
+if hasattr(sys.stdout, "reconfigure"):  # Windows console encodings must not crash a run
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 
 def re_slide(name):
     return re.fullmatch(r"ppt/slides/slide\d+\.xml", name) is not None

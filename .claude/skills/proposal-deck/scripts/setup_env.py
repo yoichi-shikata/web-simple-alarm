@@ -23,6 +23,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 SYS = platform.system()
 
+if hasattr(sys.stdout, "reconfigure"):  # Windows console encodings must not crash a run
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 
 def sh(cmd):
     print("  $ " + " ".join(cmd))

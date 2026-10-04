@@ -21,6 +21,9 @@ import sys
 import zipfile
 
 SHAPE_RE = re.compile(r'<p:sp>.*?</p:sp>|<p:graphicFrame>.*?</p:graphicFrame>|<p:pic>.*?</p:pic>', re.S)
+if hasattr(sys.stdout, "reconfigure"):  # Windows console encodings must not crash a run
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 XFRM_RE = re.compile(r'<a:off x="(-?\d+)" y="(-?\d+)"/><a:ext cx="(\d+)" cy="(\d+)"/>')
 
 

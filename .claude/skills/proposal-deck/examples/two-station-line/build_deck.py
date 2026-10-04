@@ -38,6 +38,9 @@ sys.path.insert(0, _skill_scripts())
 import deck_lib as d  # noqa: E402
 import pptx_pkg as pk  # noqa: E402
 
+if hasattr(sys.stdout, "reconfigure"):  # Windows console encodings must not crash a run
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 # =====================================================================
 # CONTENT — 案件ごとにここだけ書き換える
 # =====================================================================

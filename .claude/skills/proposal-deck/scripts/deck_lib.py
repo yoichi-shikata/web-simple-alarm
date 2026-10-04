@@ -432,11 +432,21 @@ def unpack(pptx_path, dest="unpacked"):
 
 
 def pack(unpacked, out_pptx):
-    """Zip from inside the directory, and remove any previous output first --
-    zip updates in place, so parts you deleted would otherwise survive."""
-    import subprocess
+    """Zip the unpacked tree into a .pptx with Python's zipfile (no external
+    `zip`, which Windows does not have). [Content_Types].xml goes first, as
+    Office writes it. Any previous output is replaced, never updated in place,
+    so parts you deleted cannot survive."""
+    import zipfile
     out_pptx = os.path.abspath(out_pptx)
     if os.path.exists(out_pptx):
         os.remove(out_pptx)
-    subprocess.run(["zip", "-qXr", out_pptx, "."], cwd=unpacked, check=True)
+    files = []
+    for root, _, names in os.walk(unpacked):
+        for n in names:
+            full = os.path.join(root, n)
+            files.append((os.path.relpath(full, unpacked).replace(os.sep, "/"), full))
+    files.sort(key=lambda t: (t[0] != "[Content_Types].xml", t[0]))
+    with zipfile.ZipFile(out_pptx, "w", zipfile.ZIP_DEFLATED) as z:
+        for arc, full in files:
+            z.write(full, arc)
     return out_pptx

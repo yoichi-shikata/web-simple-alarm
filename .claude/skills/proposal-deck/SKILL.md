@@ -29,6 +29,16 @@ description: |
 （例: Claude Code のリポジトリ同梱なら `.claude/skills/proposal-deck`、Codex なら `~/.agents/skills/proposal-deck` や
 `.agents/skills/proposal-deck`）。
 
+Windows（PowerShell）では `~` が展開されないことがあるので、変数に入れてから使う:
+
+```powershell
+$SK = "$env:USERPROFILE\.agents\skills\proposal-deck"
+python "$SK\scripts\setup_env.py"
+```
+
+コマンド例は `/` 区切りで書いているが、Windows でもそのまま `python $SK/scripts/...` で動く。
+未インストールなら `INSTALL.md` を案内する。
+
 ## 0. 環境を整える（最初に1回）
 
 ```bash
@@ -149,3 +159,4 @@ d.build(path, "タイトル", "■…いたします。", b)
 | `references/deck-structure.md` | 章立てを増減するとき、各スライドの考え方 |
 | `references/generic-template.md` | VRAIN以外のテンプレを渡されたとき |
 | `PROMPT.md` | ユーザーに依頼文の書き方を聞かれたとき |
+| `INSTALL.md` | 導入方法を聞かれたとき、スキルが見つからないと言われたとき |
